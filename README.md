@@ -53,5 +53,5 @@
 
 ## 🔗 作品連結
 
-- **線上遊玩連結**：`[請在此處貼上你的 GitHub Pages 或 Vercel 網址]`
-- **專案原始碼**：`[請在此處貼上你的 GitHub Repository 網址]`
+- **線上遊玩連結**：`[[請在此處貼上你的 GitHub Pages 或 Vercel 網址](https://s413007-dotcom.github.io/413007/)]`
+- **專案原始碼**：`[[請在此處貼上你的 GitHub Repository 網址](https://s413007-dotcom.github.io/413007/)]`
