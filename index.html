@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>彈珠英雄：元素碰撞</title>
+    <!-- Tailwind CSS CDN for styling UI overlay -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), 0 0 15px rgba(59, 130, 246, 0.3);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            background: #1e293b;
+        }
+        .element-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        /* Custom Glowing Effects */
+        .glow-fire { box-shadow: 0 0 10px #ef4444; }
+        .glow-water { box-shadow: 0 0 10px #3b82f6; }
+        .glow-wood { box-shadow: 0 0 10px #10b981; }
+        .glow-light { box-shadow: 0 0 10px #f59e0b; }
+        .glow-dark { box-shadow: 0 0 10px #8b5cf6; }
+
+        /* Animation Keyframes */
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-950">
+
+    <div id="game-wrapper" class="flex flex-col items-center w-full max-w-lg p-2 h-full justify-between">
+        <!-- Top Status Bar -->
+        <div class="w-full bg-slate-900/90 backdrop-blur rounded-xl p-3 border border-slate-800 flex justify-between items-center shadow-lg my-1">
+            <div>
+                <div class="text-xs text-slate-400 font-semibold">當前關卡</div>
+                <div id="level-display" class="text-xl font-black text-amber-400">STAGE 1</div>
+            </div>
+            <div class="text-center">
+                <div class="text-xs text-slate-400 font-semibold">分數</div>
+                <div id="score-display" class="text-xl font-bold text-cyan-400">0</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-slate-400 font-semibold">回合剩餘</div>
+                <div id="turn-display" class="text-xl font-extrabold text-rose-500">10</div>
+            </div>
+        </div>
+
+        <!-- Main Canvas Area -->
+        <div id="canvas-container" class="w-full flex-grow flex items-center justify-center my-1 relative">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Combo Popup Overlay -->
+            <div id="combo-popup" class="absolute top-1/3 pointer-events-none text-center opacity-0 transition-opacity duration-300 transform scale-50">
+                <span id="combo-count" class="text-5xl font-black italic text-yellow-300 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]">5 COMBO!</span>
+            </div>
+
+            <!-- Start / Game Over Modal Overlay -->
+            <div id="overlay-modal" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col justify-center items-center p-6 text-center z-10 transition-all duration-300">
+                <h1 id="modal-title" class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 mb-2">
+                    彈珠英雄：元素碰撞
+                </h1>
+                <p id="modal-desc" class="text-slate-300 text-sm mb-6 max-w-xs leading-relaxed">
+                    拉曳英雄發射彈珠！善用火、水、木、光、暗的<span class="text-amber-400 font-bold">元素克制</span>機制，引爆連擊，擊敗所有敵人！
+                </p>
+                <div class="mb-6 grid grid-cols-3 gap-2 text-xs w-full max-w-xs bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                    <div class="text-red-400 font-bold">🔥 火克木</div>
+                    <div class="text-green-400 font-bold">🌲 木克水</div>
+                    <div class="text-blue-400 font-bold">💧 水克火</div>
+                    <div class="col-span-3 text-amber-300 font-bold pt-1 border-t border-slate-800 mt-1">✨ 光暗互克 (+50% 傷害)</div>
+                </div>
+                <button id="start-btn" class="w-48 py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black rounded-full shadow-lg shadow-orange-500/30 transform hover:scale-105 transition active:scale-95 text-lg">
+                    開始冒險
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Hero Selector & Controls -->
+        <div class="w-full bg-slate-900/90 backdrop-blur rounded-xl p-3 border border-slate-800 shadow-lg my-1">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">選擇出場英雄</span>
+                <span id="skill-ready" class="text-xs font-bold text-emerald-400 hidden animate-pulse">技能可釋放！</span>
+            </div>
+            <div id="hero-selection" class="grid grid-cols-4 gap-2">
+                <!-- Hero cards generated dynamically by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- GAME CONFIG & CONSTANTS ---
+        const ELEMENTS = {
+            FIRE:  { name: '火', color: '#ef4444', glow: '#f87171', counters: 'WOOD' },
+            WATER: { name: '水', color: '#3b82f6', glow: '#60a5fa', counters: 'FIRE' },
+            WOOD:  { name: '木', color: '#10b981', glow: '#34d399', counters: 'WATER' },
+            LIGHT: { name: '光', color: '#f59e0b', glow: '#fbbf24', counters: 'DARK' },
+            DARK:  { name: '暗', color: '#8b5cf6', glow: '#a78bfa', counters: 'LIGHT' }
+        };
+
+        const HERO_SPECS = [
+            { id: 'h1', name: '元旭', element: 'FIRE', radius: 22, hp: 100, maxHp: 100, atk: 28, speedMultiplier: 1.2, desc: '火系元旭：高碰撞爆發，擊中爆裂炎波' },
+            { id: 'h2', name: '滄海', element: 'WATER', radius: 20, hp: 120, maxHp: 120, atk: 22, speedMultiplier: 1.0, desc: '水系滄海：連擊高，碰撞釋放凍結水環' },
+            { id: 'h3', name: '森羅', element: 'WOOD', radius: 24, hp: 150, maxHp: 150, atk: 20, speedMultiplier: 0.9, desc: '木系森羅：彈性強，碰撞恢復隊友生命' },
+            { id: 'h4', name: '極光', element: 'LIGHT', radius: 18, hp: 90, maxHp: 90, atk: 35, speedMultiplier: 1.4, desc: '光系極光：超高速，貫穿雷霆傷害' }
+        ];
+
+        // --- GAME STATE ---
+        let canvas, ctx;
+        let scale = 1;
+        let score = 0;
+        let level = 1;
+        let turnsLeft = 10;
+        let combo = 0;
+        let gameState = 'START'; // START, AIMING, MOVING, ENEMY_TURN, GAMEOVER, VICTORY
+
+        let activeHero = null;
+        let selectedHeroIndex = 0;
+        let heroes = [];
+        let enemies = [];
+        let particles = [];
+        let damageTexts = [];
+
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let dragCurrent = { x: 0, y: 0 };
+
+        // --- AUDIO SYNTHESIZER (Web Audio API - No External Files) ---
+        class SoundFX {
+            constructor() {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            playShoot() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            playHit(element) {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                let freq = 200;
+                if (element === 'FIRE') freq = 300;
+                if (element === 'LIGHT') freq = 500;
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(freq * 1.5, this.ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.1);
+            }
+
+            playExplosion() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(30, this.ctx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            }
+        }
+        const sfx = new SoundFX();
+
+        // --- INITIALIZATION ---
+        window.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            setupControls();
+            initHeroes();
+            renderHeroSelectionUI();
+
+            document.getElementById('start-btn').addEventListener('click', startGame);
+
+            requestAnimationFrame(gameLoop);
+        });
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container');
+            const rect = container.getBoundingClientRect();
+            
+            // Fixed internal resolution for consistent physics
+            canvas.width = 400;
+            canvas.height = 550;
+
+            scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+        }
+
+        function initHeroes() {
+            heroes = HERO_SPECS.map((spec, index) => ({
+                ...spec,
+                x: 100 + index * 70,
+                y: 480,
+                vx: 0,
+                vy: 0,
+                friction: 0.978,
+                isActive: index === 0
+            }));
+            activeHero = heroes[0];
+        }
+
+        function renderHeroSelectionUI() {
+            const container = document.getElementById('hero-selection');
+            container.innerHTML = '';
+
+            heroes.forEach((hero, index) => {
+                const elem = ELEMENTS[hero.element];
+                const isSelected = index === selectedHeroIndex;
+                
+                const card = document.createElement('div');
+                card.className = `cursor-pointer rounded-lg p-2 flex flex-col items-center transition border ${
+                    isSelected 
+                        ? 'bg-slate-800 border-amber-400 ring-2 ring-amber-400/50 scale-105' 
+                        : 'bg-slate-900 border-slate-800 opacity-70 hover:opacity-100'
+                }`;
+
+                card.innerHTML = `
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-white mb-1 shadow-md" style="background-color: ${elem.color}">
+                        ${elem.name}
+                    </div>
+                    <div class="text-xs font-bold text-slate-200">${hero.name}</div>
+                    <div class="w-full bg-slate-950 rounded-full h-1 mt-1 overflow-hidden">
+                        <div class="bg-emerald-500 h-full" style="width: ${(hero.hp / hero.maxHp) * 100}%"></div>
+                    </div>
+                `;
+
+                card.addEventListener('click', () => {
+                    if (gameState === 'AIMING' || gameState === 'START') {
+                        selectedHeroIndex = index;
+                        heroes.forEach((h, i) => h.isActive = (i === index));
+                        activeHero = heroes[selectedHeroIndex];
+                        renderHeroSelectionUI();
+                    }
+                });
+
+                container.appendChild(card);
+            });
+        }
+
+        function spawnEnemies() {
+            enemies = [];
+            const count = 3 + Math.min(level, 4);
+            const elemKeys = Object.keys(ELEMENTS);
+
+            for (let i = 0; i < count; i++) {
+                const elemKey = elemKeys[Math.floor(Math.random() * elemKeys.length)];
+                const radius = 18 + Math.floor(Math.random() * 8);
+                
+                // Avoid overlapping placement
+                let x, y, overlap;
+                let attempts = 0;
+                do {
+                    overlap = false;
+                    x = radius + 20 + Math.random() * (canvas.width - radius * 2 - 40);
+                    y = radius + 40 + Math.random() * (canvas.height * 0.45);
+
+                    for (let e of enemies) {
+                        const dist = Math.hypot(e.x - x, e.y - y);
+                        if (dist < e.radius + radius + 15) {
+                            overlap = true;
+                            break;
+                        }
+                    }
+                    attempts++;
+                } while (overlap && attempts < 100);
+
+                const hpMultiplier = 1 + (level - 1) * 0.35;
+                const hp = Math.floor((30 + Math.random() * 20) * hpMultiplier);
+
+                enemies.push({
+                    id: 'e' + i,
+                    x: x,
+                    y: y,
+                    vx: 0,
+                    vy: 0,
+                    radius: radius,
+                    element: elemKey,
+                    hp: hp,
+                    maxHp: hp,
+                    atk: Math.floor(10 + level * 2),
+                    friction: 0.95
+                });
+            }
+        }
+
+        function startGame() {
+            level = 1;
+            score = 0;
+            turnsLeft = 12;
+            initHeroes();
+            spawnEnemies();
+
+            document.getElementById('overlay-modal').classList.add('hidden');
+            updateUI();
+            gameState = 'AIMING';
+        }
+
+        function nextLevel() {
+            level++;
+            turnsLeft += 6; // Bonus turns
+            spawnEnemies();
+            
+            // Reset Hero positions slightly
+            heroes.forEach((hero, index) => {
+                hero.x = 80 + index * 80;
+                hero.y = 480;
+                hero.vx = 0;
+                hero.vy = 0;
+            });
+
+            updateUI();
+            showComboPopup(`通關！進入第 ${level} 關`, '#f59e0b');
+            gameState = 'AIMING';
+        }
+
+        // --- CONTROLS & INPUT HANDLING ---
+        function setupControls() {
+            const getCanvasCoords = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                
+                return {
+                    x: (clientX - rect.left) * (canvas.width / rect.width),
+                    y: (clientY - rect.top) * (canvas.height / rect.height)
+                };
+            };
+
+            const handleStart = (e) => {
+                if (gameState !== 'AIMING') return;
+                const coords = getCanvasCoords(e);
+                
+                // Check drag distance from active hero
+                const dist = Math.hypot(coords.x - activeHero.x, coords.y - activeHero.y);
+                if (dist < activeHero.radius * 2.5) {
+                    isDragging = true;
+                    dragStart = { x: activeHero.x, y: activeHero.y };
+                    dragCurrent = coords;
+                }
+            };
+
+            const handleMove = (e) => {
+                if (!isDragging) return;
+                dragCurrent = getCanvasCoords(e);
+            };
+
+            const handleEnd = () => {
+                if (!isDragging) return;
+                isDragging = false;
+
+                // Launch hero
+                const dx = dragStart.x - dragCurrent.x;
+                const dy = dragStart.y - dragCurrent.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist > 15) {
+                    const power = Math.min(dist * 0.18, 18) * activeHero.speedMultiplier;
+                    const angle = Math.atan2(dy, dx);
+
+                    activeHero.vx = Math.cos(angle) * power;
+                    activeHero.vy = Math.sin(angle) * power;
+
+                    gameState = 'MOVING';
+                    combo = 0;
+                    turnsLeft--;
+                    updateUI();
+                    sfx.playShoot();
+                }
+            };
+
+            canvas.addEventListener('mousedown', handleStart);
+            canvas.addEventListener('mousemove', handleMove);
+            window.addEventListener('mouseup', handleEnd);
+
+            canvas.addEventListener('touchstart', handleStart, { passive: true });
+            canvas.addEventListener('touchmove', handleMove, { passive: true });
+            window.addEventListener('touchend', handleEnd);
+        }
+
+        // --- PHYSICS & COLLISION ENGINE ---
+        function updatePhysics() {
+            let stillMoving = false;
+
+            // Move Active Hero
+            if (gameState === 'MOVING') {
+                activeHero.x += activeHero.vx;
+                activeHero.y += activeHero.vy;
+                activeHero.vx *= activeHero.friction;
+                activeHero.vy *= activeHero.friction;
+
+                if (Math.hypot(activeHero.vx, activeHero.vy) > 0.15) {
+                    stillMoving = true;
+                } else {
+                    activeHero.vx = 0;
+                    activeHero.vy = 0;
+                }
+
+                handleWallCollisions(activeHero);
+            }
+
+            // Move Enemies if hit and pushed
+            enemies.forEach(enemy => {
+                if (Math.abs(enemy.vx) > 0.05 || Math.abs(enemy.vy) > 0.05) {
+                    enemy.x += enemy.vx;
+                    enemy.y += enemy.vy;
+                    enemy.vx *= enemy.friction;
+                    enemy.vy *= enemy.friction;
+                    stillMoving = true;
+                    handleWallCollisions(enemy);
+                } else {
+                    enemy.vx = 0;
+                    enemy.vy = 0;
+                }
+            });
+
+            // Hero <-> Enemy Collisions
+            if (gameState === 'MOVING') {
+                enemies.forEach(enemy => {
+                    if (enemy.hp <= 0) return;
+
+                    const dx = enemy.x - activeHero.x;
+                    const dy = enemy.y - activeHero.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = activeHero.radius + enemy.radius;
+
+                    if (dist < minDist) {
+                        // Elastic collision math
+                        const angle = Math.atan2(dy, dx);
+                        const sin = Math.sin(angle);
+                        const cos = Math.cos(angle);
+
+                        // Overlap resolution
+                        const overlap = minDist - dist;
+                        activeHero.x -= cos * overlap * 0.5;
+                        activeHero.y -= sin * overlap * 0.5;
+                        enemy.x += cos * overlap * 0.5;
+                        enemy.y += sin * overlap * 0.5;
+
+                        // Bounce speeds
+                        const speed = Math.hypot(activeHero.vx, activeHero.vy);
+                        activeHero.vx = -cos * speed * 0.85;
+                        activeHero.vy = -sin * speed * 0.85;
+
+                        enemy.vx = cos * speed * 0.6;
+                        enemy.vy = sin * speed * 0.6;
+
+                        // Damage Calculation
+                        combo++;
+                        calculateDamage(activeHero, enemy);
+                        createCollisionParticles((activeHero.x + enemy.x) / 2, (activeHero.y + enemy.y) / 2, ELEMENTS[activeHero.element].color);
+                        sfx.playHit(activeHero.element);
+                    }
+                });
+            }
+
+            // Turn End Check
+            if (gameState === 'MOVING' && !stillMoving) {
+                checkTurnEnd();
+            }
+
+            // Update Particles
+            particles.forEach((p, index) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+                if (p.life <= 0) particles.splice(index, 1);
+            });
+
+            // Update Floating Damage Texts
+            damageTexts.forEach((dt, index) => {
+                dt.y -= 0.8;
+                dt.life -= 0.02;
+                if (dt.life <= 0) damageTexts.splice(index, 1);
+            });
+        }
+
+        function handleWallCollisions(obj) {
+            if (obj.x - obj.radius < 0) {
+                obj.x = obj.radius;
+                obj.vx *= -1;
+            } else if (obj.x + obj.radius > canvas.width) {
+                obj.x = canvas.width - obj.radius;
+                obj.vx *= -1;
+            }
+
+            if (obj.y - obj.radius < 0) {
+                obj.y = obj.radius;
+                obj.vy *= -1;
+            } else if (obj.y + obj.radius > canvas.height) {
+                obj.y = canvas.height - obj.radius;
+                obj.vy *= -1;
+            }
+        }
+
+        // --- ELEMENTAL DAMAGE CALCULATION ---
+        function calculateDamage(attacker, defender) {
+            let multiplier = 1.0;
+            const atkElem = attacker.element;
+            const defElem = defender.element;
+
+            // Element Counter Check
+            if (ELEMENTS[atkElem].counters === defElem) {
+                multiplier = 1.6; // 克制 160% 傷害
+            } else if (ELEMENTS[defElem].counters === atkElem) {
+                multiplier = 0.7; // 被克制 70% 傷害
+            }
+
+            // Combo multiplier bonus (+10% per combo)
+            const comboBonus = 1 + (combo - 1) * 0.15;
+            const baseDmg = attacker.atk;
+            const finalDamage = Math.floor(baseDmg * multiplier * comboBonus);
+
+            defender.hp -= finalDamage;
+            score += finalDamage * 10;
+
+            // Damage Text Popup
+            let isCrit = multiplier > 1.2;
+            damageTexts.push({
+                x: defender.x,
+                y: defender.y - 10,
+                text: `${finalDamage}${isCrit ? '!' : ''}`,
+                color: isCrit ? '#f59e0b' : '#ffffff',
+                life: 1.0
+            });
+
+            if (combo >= 2) {
+                showComboPopup(`${combo} COMBO!`, ELEMENTS[atkElem].color);
+            }
+
+            // Enemy Defeated
+            if (defender.hp <= 0) {
+                defender.hp = 0;
+                sfx.playExplosion();
+                createExplosionParticles(defender.x, defender.y, ELEMENTS[defender.element].color);
+            }
+
+            updateUI();
+        }
+
+        function checkTurnEnd() {
+            // Clean dead enemies
+            enemies = enemies.filter(e => e.hp > 0);
+
+            if (enemies.length === 0) {
+                nextLevel();
+                return;
+            }
+
+            if (turnsLeft <= 0) {
+                // Game Over
+                showGameOverModal(false);
+                return;
+            }
+
+            gameState = 'AIMING';
+        }
+
+        function showGameOverModal(isVictory) {
+            gameState = 'GAMEOVER';
+            const modal = document.getElementById('overlay-modal');
+            const title = document.getElementById('modal-title');
+            const desc = document.getElementById('modal-desc');
+            const btn = document.getElementById('start-btn');
+
+            modal.classList.remove('hidden');
+            if (isVictory) {
+                title.innerText = '冒險勝利！';
+                title.className = 'text-3xl font-extrabold text-amber-400 mb-2';
+                desc.innerText = `恭喜通關！最高到達第 ${level} 關，總得分：${score}`;
+            } else {
+                title.innerText = '挑戰失敗';
+                title.className = 'text-3xl font-extrabold text-rose-500 mb-2';
+                desc.innerText = `回合數已耗盡！最終得分：${score}。再接再厲！`;
+            }
+            btn.innerText = '重新開始';
+        }
+
+        // --- VISUAL EFFECTS & PARTICLES ---
+        function createCollisionParticles(x, y, color) {
+            for (let i = 0; i < 12; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 4;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 2 + Math.random() * 3,
+                    color: color,
+                    life: 1.0,
+                    decay: 0.03 + Math.random() * 0.02
+                });
+            }
+        }
+
+        function createExplosionParticles(x, y, color) {
+            for (let i = 0; i < 25; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 6;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 3 + Math.random() * 4,
+                    color: color,
+                    life: 1.0,
+                    decay: 0.02
+                });
+            }
+        }
+
+        function showComboPopup(text, color) {
+            const popup = document.getElementById('combo-popup');
+            const comboText = document.getElementById('combo-count');
+
+            comboText.innerText = text;
+            comboText.style.color = color;
+
+            popup.style.opacity = '1';
+            popup.style.transform = 'scale(1.1)';
+
+            setTimeout(() => {
+                popup.style.opacity = '0';
+                popup.style.transform = 'scale(0.8)';
+            }, 600);
+        }
+
+        function updateUI() {
+            document.getElementById('level-display').innerText = `STAGE ${level}`;
+            document.getElementById('score-display').innerText = score;
+            document.getElementById('turn-display').innerText = turnsLeft;
+            renderHeroSelectionUI();
+        }
+
+        // --- RENDER ENGINE ---
+        function draw() {
+            // Clear background
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Grid Lines (Subtle background pattern)
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 40) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 40) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // Draw Aiming Guide Line
+            if (isDragging && gameState === 'AIMING') {
+                const dx = dragStart.x - dragCurrent.x;
+                const dy = dragStart.y - dragCurrent.y;
+
+                ctx.beginPath();
+                ctx.moveTo(activeHero.x, activeHero.y);
+                ctx.lineTo(activeHero.x + dx * 1.5, activeHero.y + dy * 1.5);
+                ctx.strokeStyle = ELEMENTS[activeHero.element].color;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([6, 6]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Aim trajectory dot
+                ctx.beginPath();
+                ctx.arc(activeHero.x + dx * 1.5, activeHero.y + dy * 1.5, 6, 0, Math.PI * 2);
+                ctx.fillStyle = ELEMENTS[activeHero.element].color;
+                ctx.fill();
+            }
+
+            // Draw Enemies
+            enemies.forEach(enemy => {
+                const elem = ELEMENTS[enemy.element];
+
+                // Outer Glow
+                ctx.save();
+                ctx.shadowColor = elem.color;
+                ctx.shadowBlur = 12;
+
+                // Main Circle
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.fillStyle = elem.color;
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+
+                // Element Symbol Text
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(elem.name, enemy.x, enemy.y);
+
+                // Health Bar
+                const barWidth = enemy.radius * 2;
+                const barHeight = 4;
+                const hpRatio = enemy.hp / enemy.maxHp;
+
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(enemy.x - barWidth / 2, enemy.y - enemy.radius - 8, barWidth, barHeight);
+
+                ctx.fillStyle = hpRatio > 0.4 ? '#10b981' : '#ef4444';
+                ctx.fillRect(enemy.x - barWidth / 2, enemy.y - enemy.radius - 8, barWidth * hpRatio, barHeight);
+            });
+
+            // Draw Heroes
+            heroes.forEach(hero => {
+                const elem = ELEMENTS[hero.element];
+                const isCurrent = hero === activeHero;
+
+                ctx.save();
+                if (isCurrent) {
+                    ctx.shadowColor = elem.color;
+                    ctx.shadowBlur = 18;
+                }
+
+                ctx.beginPath();
+                ctx.arc(hero.x, hero.y, hero.radius, 0, Math.PI * 2);
+                ctx.fillStyle = elem.color;
+                ctx.fill();
+
+                ctx.strokeStyle = isCurrent ? '#f59e0b' : '#ffffff';
+                ctx.lineWidth = isCurrent ? 3.5 : 1.5;
+                ctx.stroke();
+                ctx.restore();
+
+                // Hero Name
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(hero.name, hero.x, hero.y);
+            });
+
+            // Draw Particles
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.life;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Draw Damage Text Popups
+            damageTexts.forEach(dt => {
+                ctx.save();
+                ctx.globalAlpha = dt.life;
+                ctx.font = 'black 16px sans-serif';
+                ctx.fillStyle = dt.color;
+                ctx.textAlign = 'center';
+                ctx.fillText(dt.text, dt.x, dt.y);
+                ctx.restore();
+            });
+        }
+
+        // --- MAIN GAME LOOP ---
+        function gameLoop() {
+            updatePhysics();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
